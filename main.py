@@ -241,6 +241,22 @@ def startup_db_check():
             SELECT unnest(ARRAY['Heavy', 'Medium', 'Light'])
             WHERE NOT EXISTS (SELECT 1 FROM vehicle_types LIMIT 1)
         """))
+
+        # 9. Create default admin if no officers exist
+        existing_admin = db.execute(text("SELECT COUNT(*) FROM officers WHERE role = 'ADMIN'")).scalar()
+        if existing_admin == 0:
+            print("Seeding default admin account...")
+            db.execute(text("""
+                INSERT INTO officers (name, badge_number, email, password, role, is_active)
+                VALUES (
+                    'Admin Officer',
+                    'ADMIN001',
+                    'admin@police.gov',
+                    crypt('admin123', gen_salt('bf')),
+                    'ADMIN',
+                    TRUE
+                )
+            """))
         
         db.commit()
         print("Startup Check Complete. Tables verified and Seeded.")
