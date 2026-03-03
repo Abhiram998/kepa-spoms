@@ -1,0 +1,237 @@
+import { useParams, Link } from "wouter";
+import { useParking } from "@/lib/parking-context";
+import { ArrowLeft, Car, Truck, Bus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
+import { useEffect, useState } from "react";
+import { apiGet } from "@/lib/api";
+
+export default function AreaDetails() {
+  const { id } = useParams();
+  const { zones, isAdmin } = useParking();
+  const zone = zones.find(z => z.id === id);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchVehicles = () => {
+      apiGet<any[]>(`/api/zones/${id}/vehicles`)
+        .then(setVehicles)
+        .catch(err => {
+          console.error("Failed to load vehicles for zone", err);
+          setVehicles([]);
+        });
+    };
+
+    fetchVehicles();
+    const interval = setInterval(fetchVehicles, 5000);
+    return () => clearInterval(interval);
+  }, [id, zone?.occupied]); // Refetch list if context occupancy changes
+
+  // Find zone data from context
+  if (!zone) return <div className="p-8 text-center">Zone not found</div>;
+
+  // Use the stats directly from the zone object (PostgreSQL Source of Truth)
+  // This prevents the "Occupied 9 but Classification 0" error
+  const occupiedCount = zone.occupied;
+  const stats = zone.stats || { light: 0, medium: 0, heavy: 0 };
+
+  const percentage = Math.round((occupiedCount / zone.capacity) * 100);
+  const isFull = percentage >= 100;
+  // 🔹 Display number based on dashboard order (not DB ID)
+  const displayZoneNumber = zones.findIndex(z => z.id === zone.id) + 1;
+
+  // Chart data now uses database stats instead of array filtering
+  const vehicleTypeData = [
+    {
+      name: 'Light (Cars/Jeeps)',
+      value: stats.light,
+      color: 'hsl(var(--primary))',
+    },
+    {
+      name: 'Medium (Vans/Minibus)',
+      value: stats.medium,
+      color: '#f59e0b',
+    },
+    {
+      name: 'Heavy (Buses/Trucks)',
+      value: stats.heavy,
+      color: '#ef4444',
+    }
+  ];
+
+  const getVehicleIcon = (type: string) => {
+    switch (type) {
+      case 'heavy': return <Bus className="w-4 h-4" />;
+      case 'medium': return <Truck className="w-4 h-4" />;
+      default: return <Car className="w-4 h-4" />;
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+      <div className="flex items-center gap-4 mb-6">
+        <Link href="/">
+          <Button variant="ghost" size="icon">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            Area Z{displayZoneNumber}
+          </h1>
+          <p className="text-muted-foreground">{zone.name}</p>
+        </div>
+      </div>
+
+      {/* Stats Overview - Using Zone Context (DB Numbers) */}
+      <div className="grid grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <div className="text-2xl font-bold">{zone.capacity}</div>
+            <div className="text-xs text-muted-foreground uppercase">Total</div>
+          </CardContent>
+        </Card>
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="pt-6 text-center">
+            <div className="text-2xl font-bold text-primary">{occupiedCount}</div>
+            <div className="text-xs text-muted-foreground uppercase">Occupied</div>
+          </CardContent>
+        </Card>
+        <Card className="border-green-500/20 bg-green-500/5">
+          <CardContent className="pt-6 text-center">
+            <div className="text-2xl font-bold text-green-600">{Math.max(0, zone.capacity - occupiedCount)}</div>
+            <div className="text-xs text-muted-foreground uppercase">Vacant</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Classification Chart - Uses DB Stats */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Vehicle Classification</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between">
+            <div className="h-[180px] w-[180px] relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={vehicleTypeData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {vehicleTypeData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex items-center justify-center flex-col pointer-events-none">
+                <span className="text-2xl font-bold">{occupiedCount}</span>
+                <span className="text-[10px] text-muted-foreground uppercase">Vehicles</span>
+              </div>
+            </div>
+            <div className="space-y-4 flex-1 ml-6">
+              {vehicleTypeData.map((item) => (
+                <div key={item.name} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="text-sm font-medium">{item.name.split(' ')[0]}</span>
+                  </div>
+                  <span className="font-bold font-mono">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Live Slot Map */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Live Slot Map</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Occupancy Level</span>
+                <span className="font-bold">{percentage}%</span>
+              </div>
+              <Progress value={percentage} className={`h-4 ${isFull ? "bg-red-100 [&>div]:bg-red-500" : "bg-primary/10 [&>div]:bg-primary"}`} />
+            </div>
+
+            <div className="grid grid-cols-5 sm:grid-cols-8 gap-2">
+              {Array.from({ length: zone.capacity }).map((_, i) => {
+                const isSlotOccupied = i < occupiedCount;
+                return (
+                  <div
+                    key={i}
+                    className={`aspect-square rounded-sm flex items-center justify-center text-[10px] font-mono transition-all border ${isSlotOccupied
+                      ? "bg-slate-100 border-slate-200 text-muted-foreground"
+                      : "bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                      }`}
+                  >
+                    {isSlotOccupied ? (
+                      <Car className="w-3 h-3" />
+                    ) : (
+                      i + 1
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Admin Vehicle List */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Car className="w-5 h-5" />
+              Parked Vehicles List
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {vehicles.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No vehicles found in the database for this zone.
+              </div>
+            ) : (
+              <div className="divide-y">
+                {vehicles.map((v, i) => (
+                  <div key={i} className="py-3 flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${v.type === 'heavy' ? 'bg-red-500' : v.type === 'medium' ? 'bg-amber-500' : 'bg-primary'
+                        }`}>
+                        {getVehicleIcon(v.type)}
+                      </div>
+                      <div>
+                        <div className="font-mono font-medium">{v.number}</div>
+                        <div className="flex gap-2 items-center">
+                          <span className="text-xs text-muted-foreground">Ticket: {v.ticket_id || v.ticketId}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-sm text-muted-foreground font-mono">
+                      {new Date(v.entry_time || v.entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}

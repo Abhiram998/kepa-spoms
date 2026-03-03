@@ -1,0 +1,38 @@
+
+# Node
+node_modules/
+dist/
+build/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Replit/Railway artifacts (just in case)
+.replit
+replit.nix
+.local/
+railway.toml
+
+# OS
+.DS_Store
+Thumbs.db
